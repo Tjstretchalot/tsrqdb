@@ -1,0 +1,23 @@
+{
+  "name": "rqdb",
+  "version": "0.0.1",
+  "description": "Unofficial client library for rqlite",
+  "main": "index.ts",
+  "scripts": {
+    "test": "jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tjstretchalot/tsrqdb.git"
+  },
+  "keywords": [
+    "TypeScript",
+    "rqlite"
+  ],
+  "author": "Timothy Moore",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/tjstretchalot/tsrqdb/issues"
+  },
+  "homepage": "https://github.com/tjstretchalot/tsrqdb#readme"
+}
