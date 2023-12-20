@@ -147,7 +147,7 @@ is `NULL`, which evaluates to false. One way this could be handled is
 ```ts
 const name: string | null = null;
 
-// never matches a row since name is None, even if the rows name is null
+// never matches a row since name is null, even if the rows name is null
 await cursor.execute('SELECT * FROM persons WHERE name = ?', [name]);
 
 // works as expected
