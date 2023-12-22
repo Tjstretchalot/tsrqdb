@@ -136,15 +136,7 @@ is enabled as described in
 
 ### Nulls
 
-Substituting `NULL` in parametrized queries can be error-prone. In particular,
-sqlite needs `null` sent in a very particular way, which the rqlite server has
-historically not handled properly.
-
-By default, if you attempt to use `null` as a parameter to a query, this package
-will perform string substition with the value `NULL` in the correct spot. Be
-careful however - you will still need to handle nulls properly in the query,
-since `col = NULL` and `col IS NULL` are not the same. In particular, `NULL = NULL`
-is `NULL`, which evaluates to false. One way this could be handled is
+Substituting `NULL` in parametrized queries can be error-prone.
 
 ```ts
 const name: string | null = null;
