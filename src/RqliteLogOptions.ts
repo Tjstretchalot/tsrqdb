@@ -203,7 +203,10 @@ export const defaultColors: Record<
   async function loadChalk() {
     try {
       // @ts-ignore
-      const chalk: any = await import('chalk');
+      const chalk: any = await import(
+        /* webpackIgnore: true */ // @ts-ignore
+        'chalk'
+      );
       const chalkColors = 'gray' in chalk ? chalk : chalk.default;
       if (chalkColors && 'gray' in chalkColors) {
         result['debug'] = chalkColors.gray;

@@ -163,8 +163,10 @@ const defaultFormatOptions = ((): Required<FormatExplainQueryPlanOptions> => {
 
   async function loadChalk() {
     try {
-      // @ts-ignore
-      const chalkRaw: any = await import('chalk');
+      const chalkRaw: any = await import(
+        /* webpackIgnore: true */ // @ts-ignore
+        'chalk'
+      );
       const chalkColors: any = 'gray' in chalkRaw ? chalkRaw : chalkRaw.default;
       if (chalkColors && 'gray' in chalkColors) {
         result.vbar = chalkColors.gray('|');

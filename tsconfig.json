@@ -23,8 +23,10 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": false,
-    "jsx": "react-jsx",
+    "declaration": true,
+    "declarationMap": true,
     "sourceMap": true,
+    "outDir": "dist",
     "plugins": []
   },
   "include": ["src"],
