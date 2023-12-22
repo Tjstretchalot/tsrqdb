@@ -1,4 +1,5 @@
 import type { DeepReadonly } from './DeepReadonly';
+import { RqliteCursor } from './RqliteCursor';
 import {
   RqliteConcreteLogOptions,
   RqliteLogOptions,
@@ -569,6 +570,20 @@ export class RqliteConnection {
       signal,
       'none',
       undefined
+    );
+  }
+
+  /**
+   * Creates a new cursor which can be used to execute commands. Each cursor
+   * can override the default read consistency and freshness, which is a
+   * convenient way to group related queries under consistent settings.
+   */
+  cursor(readConsistency?: RqliteReadConsistency, freshness?: string) {
+    return new RqliteCursor(
+      this,
+      readConsistency === undefined && freshness === undefined
+        ? undefined
+        : { readConsistency, freshness }
     );
   }
 }
