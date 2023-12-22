@@ -1,3 +1,4 @@
+import CopyPlugin from 'copy-webpack-plugin';
 import path from 'path';
 import nodeExternals from 'webpack-node-externals';
 
@@ -25,6 +26,11 @@ export default {
   resolve: {
     extensions: ['.tsx', '.ts', '.js'],
   },
+  plugins: [
+    new CopyPlugin({
+      patterns: [{ from: 'dist/index.d.ts', to: 'rqdb.d.ts' }],
+    }),
+  ],
   module: {
     rules: [
       {
