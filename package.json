@@ -1,9 +1,9 @@
 {
   "name": "rqdb",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Unofficial client library for rqlite",
-  "main": "src/index.ts",
+  "main": "dist/rqdb.js",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tjstretchalot/tsrqdb.git"
