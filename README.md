@@ -3,10 +3,11 @@
 This is an unofficial TypeScript fetch-based client library for
 [rqlite](https://github.com/rqlite/rqlite).
 
-This project is guided by the following principles:
+This project is guided by the following principles, in order:
 
 - Minimal Dependencies: This only requires the standard TypeScript/ESLint
   setup, without any runtime dependencies beyond node.
+- Pragmatism: Avoid excessive boilerplate, provide sane defaults
 - Thin: Avoid encapsulation, prefer data objects that mirror the API
 - Simple: Avoid state, prefer dependency injection to configuration
 - Fast: Avoid copies, prefer performance over defensiveness
@@ -26,12 +27,12 @@ npm install --save rqdb
 ## Usage
 
 ```ts
-import rqdb from 'rqdb';
+import { RqliteConnection } from 'rqdb';
 import crypto from 'crypto';
 import { inspect } from 'util';
 
 async function main() {
-  const conn = rqdb.connect(['127.0.0.1:4001']);
+  const conn = new RqliteConnection(['http://127.0.0.1:4001']);
   const cursor = conn.cursor('none');
 
   await cursor.executeMany2([
@@ -71,14 +72,15 @@ main();
 
 ### Explain
 
-Quickly get a formatted query plan from the current leader for a query
+Quickly get a formatted query plan from the current leader for a query, with
+basic highlighting of the most salient parts
 
 ```ts
-import rqdb from 'rqdb';
+import { RqliteConnection } from 'rqdb';
 import crypto from 'crypto';
 import { inspect } from 'util';
 
-const conn = rqdb.connect(['127.0.0.1:4001']);
+const conn = new RqliteConnection(['http://127.0.0.1:4001']);
 const cursor = conn.cursor('none');
 
 await cursor.execute(
@@ -159,9 +161,10 @@ await cursor.execute(
 
 ### Backup
 
-Backups can be initiated using `conn.backup(filepath: str, raw: bool = False)`.
+Backups can be initiated using `await conn.backupToFile('binary', 'database.bak')`.
 The download will be streamed to the given filepath. Both the sql format and a
-compressed sqlite format are supported.
+compressed sqlite format are supported. If more control is required, such as
+compressing mid flight, use `RqliteConnection.backup` directly.
 
 ### Logging
 
@@ -171,11 +174,15 @@ the `connect` call. If logging is desired but needs to be handled differently,
 it can be done as follows:
 
 ```ts
-import rqdb from 'rqdb';
+import { RqliteConnection } from 'rqdb';
 import chalk from 'chalk';
+import { inspect } from 'util';
 
-conn = rqdb.connect(['127.0.0.1:4001'], {
-  // defaults shown here
+// The default formatter includes the error in the message
+const logMessage = (message: string, error?: any) => console.log(message);
+
+conn = new RqliteConnection(['http://127.0.0.1:4001'], {
+  // defaults shown here unless otherwise noted
   log: {
     meta: {
       format: (
@@ -193,32 +200,89 @@ conn = rqdb.connect(['127.0.0.1:4001'], {
         return `${chalk.green(new Date().toLocaleString())} ${colorsByLevel[
           level
         ](message)}${
-          error === undefined ? '' : '\n' + chalk.white(inspect(error))
+          error === undefined ? '' : '\n' + chalk.gray(inspect(error))
         }`;
       },
     },
-    readStart: { method: console.log, level: 'debug', maxLength: undefined },
-    writeStart: { method: console.log, level: 'debug', maxLength: undefined },
-    readResponse: { method: console.log, level: 'debug', maxLength: 1024 },
-    writeResponse: {
-      method: console.log,
+    readStart: {
+      // the method is slightly simplified here as we also handle coloring commands
+      method: logMessage,
       level: 'debug',
       maxLength: undefined,
+      enabled: true,
+    },
+    readResponse: {
+      method: logMessage,
+      level: 'debug',
+      maxLength: 1024,
+      enabled: true,
+    },
+    readStale: {
+      method: logMessage,
+      level: 'debug',
+      maxLength: undefined,
+      enabled: true,
+    },
+    writeStart: {
+      // the method is slightly simplified here as we also handle coloring commands
+      method: logMessage,
+      level: 'debug',
+      maxLength: undefined,
+      enabled: true,
+    },
+    writeResponse: {
+      method: logMessage,
+      level: 'debug',
+      maxLength: undefined,
+      enabled: true,
+    },
+    followRedirect: {
+      method: logMessage,
+      level: 'debug',
+      maxLength: undefined,
+      enabled: false,
+    },
+    fetchError: {
+      method: logMessage,
+      level: 'debug',
+      maxLength: undefined,
+      enabled: true,
     },
     connectTimeout: {
-      method: console.log,
+      method: logMessage,
       level: 'debug',
       maxLength: undefined,
+      enabled: true,
+    },
+    readTimeout: {
+      method: logMessage,
+      level: 'error',
+      maxLength: undefined,
+      enabled: true,
     },
     hostsExhausted: {
-      method: console.log,
-      level: 'warning',
+      method: logMessage,
+      level: 'error',
       maxLength: undefined,
+      enabled: true,
     },
     nonOkResponse: {
-      method: console.log,
+      method: logMessage,
       level: 'warning',
       maxLength: undefined,
+      enabled: true,
+    },
+    backupStart: {
+      method: logMessage,
+      level: 'info',
+      maxLength: undefined,
+      enabled: true,
+    },
+    backupEnd: {
+      method: logMessage,
+      level: 'info',
+      maxLength: undefined,
+      enabled: true,
     },
   },
 });
