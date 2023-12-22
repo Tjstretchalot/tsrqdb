@@ -1,6 +1,6 @@
 {
   "name": "rqdb",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "type": "module",
   "description": "Unofficial client library for rqlite",
   "main": "dist/rqdb.js",
