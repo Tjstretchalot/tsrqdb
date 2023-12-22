@@ -185,7 +185,8 @@ export class RqliteConnection {
     body: BodyInit | undefined,
     headers: Record<string, string> | undefined,
     signal: AbortSignal | undefined,
-    parseResponse: (response: Response, signal: AbortSignal) => Promise<T>
+    parseResponse: (response: Response, signal: AbortSignal) => Promise<T>,
+    requestBytes?: boolean
   ): Promise<T> {
     if (signal?.aborted) {
       throw new RqliteCanceledError();
@@ -539,28 +540,57 @@ export class RqliteConnection {
           throw new Error('Response body is null');
         }
         const body = response.body;
+
         const out = fs.createWriteStream(path);
         try {
-          const buffer = new Uint8Array(16 * 1024);
-          const reader = body.getReader({ mode: 'byob' });
-          while (true) {
-            if (signal.aborted) {
-              throw new RqliteCanceledError();
+          let byobReader: ReadableStreamBYOBReader | undefined = undefined;
+          try {
+            byobReader = body.getReader({ mode: 'byob' });
+          } catch (e) {}
+
+          if (byobReader !== undefined) {
+            const buffer = new Uint8Array(16 * 1024);
+            while (true) {
+              if (signal.aborted) {
+                throw new RqliteCanceledError();
+              }
+              const { value, done } = await byobReader.read(buffer);
+              if (value !== undefined) {
+                await new Promise<void>((resolve, reject) =>
+                  out.write(value, (e) => {
+                    if (e === undefined || e === null) {
+                      resolve();
+                    } else {
+                      reject(e);
+                    }
+                  })
+                );
+              }
+              if (done) {
+                break;
+              }
             }
-            const { value, done } = await reader.read(buffer);
-            if (value !== undefined) {
-              await new Promise<void>((resolve, reject) =>
-                out.write(value, (e) => {
-                  if (e === undefined || e === null) {
-                    resolve();
-                  } else {
-                    reject(e);
-                  }
-                })
-              );
-            }
-            if (done) {
-              break;
+          } else {
+            const reader = body.getReader();
+            while (true) {
+              if (signal.aborted) {
+                throw new RqliteCanceledError();
+              }
+              const { value, done } = await reader.read();
+              if (value !== undefined) {
+                await new Promise<void>((resolve, reject) =>
+                  out.write(value, (e) => {
+                    if (e === undefined || e === null) {
+                      resolve();
+                    } else {
+                      reject(e);
+                    }
+                  })
+                );
+              }
+              if (done) {
+                break;
+              }
             }
           }
         } finally {

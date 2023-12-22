@@ -282,7 +282,7 @@ export class RqliteCursor {
       response = this.connection.fetchResponse(
         readConsistency,
         freshness,
-        'GET',
+        'POST',
         '/db/query?level=' +
           readConsistency +
           (readConsistency === 'none' ? '&freshness=' + freshness : ''),

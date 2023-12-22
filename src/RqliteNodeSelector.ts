@@ -182,7 +182,7 @@ const RqliteSingleNodeSelector: RqliteNodeSelector = (
 
       return {
         selectNode: async () => {
-          if (passes >= args.maxAttemptsPerHost) {
+          if (passes >= args.maxAttemptsPerHost - 1) {
             throw new RqliteHostsExhaustedError(true);
           }
 
@@ -313,7 +313,7 @@ class _RqliteRandomNodeSelectorImpl {
     }
 
     if (this.nextIndexInShuffledHosts >= this.shuffledHosts.length) {
-      if (this.loopsThroughShuffledHosts >= this.args.maxAttemptsPerHost) {
+      if (this.loopsThroughShuffledHosts >= this.args.maxAttemptsPerHost - 1) {
         throw new RqliteHostsExhaustedError(true);
       }
 

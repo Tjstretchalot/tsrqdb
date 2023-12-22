@@ -251,9 +251,8 @@ const formatExplainQueryPlanNode = (
     );
   }
 
-  parts.push(' '.repeat(opts.indent & (level - 1)));
   if (level > 0) {
-    parts.push(' '.repeat(opts.indent - 1));
+    parts.push(' '.repeat(opts.indent * level - 1));
     parts.push(opts.vbar);
   }
   parts.push(opts.dash(opts.indent - 1));
