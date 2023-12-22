@@ -33,7 +33,7 @@ import { inspect } from 'util';
 
 async function main() {
   const conn = new RqliteConnection(['http://127.0.0.1:4001']);
-  const cursor = conn.cursor('none');
+  const cursor = conn.cursor();
 
   await cursor.executeMany2([
     'CREATE TABLE persons (id INTEGER PRIMARY KEY, uid TEXT UNIQUE NOT NULL, name TEXT NOT NULL)',
@@ -81,7 +81,7 @@ import crypto from 'crypto';
 import { inspect } from 'util';
 
 const conn = new RqliteConnection(['http://127.0.0.1:4001']);
-const cursor = conn.cursor('none');
+const cursor = conn.cursor('weak');
 
 await cursor.execute(
   `
