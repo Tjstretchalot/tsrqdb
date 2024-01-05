@@ -8,7 +8,7 @@ import {
   defaultLogOptions,
 } from './RqliteLogOptions';
 import {
-  RqliteRandomNodeSelector,
+  RqliteDefaultNodeSelector,
   type RqliteNodeSelector,
   type RqliteConcreteNodeSelector,
 } from './RqliteNodeSelector';
@@ -72,12 +72,12 @@ export type RqliteConnectionOptions = {
   log?: RqliteLogOptions;
 
   /**
-   * The node selector to use. Defaults to `RqliteRandomNodeSelector`, as if by
+   * The node selector to use. Defaults to `RqliteDefaultNodeSelector`, as if by
    * ```ts
-   * import { RqliteConnection, RqliteRandomNodeSelector } from 'rqdb';
+   * import { RqliteConnection, RqliteDefaultNodeSelector } from 'rqdb';
    *
    * const connection = new RqliteConnection(['127.0.0.1:4001'], {
-   *   nodeSelector: RqliteRandomNodeSelector,
+   *   nodeSelector: RqliteDefaultNodeSelector,
    * })
    * ```
    *
@@ -92,7 +92,9 @@ export type RqliteConcreteConnectionOptions = Required<
   Omit<RqliteConnectionOptions, 'log'>
 > & { log: RqliteConcreteLogOptions };
 
-const REDIRECT_STATUS_CODES: ReadonlyArray<number> = [301, 302, 303, 307, 308];
+export const REDIRECT_STATUS_CODES: ReadonlyArray<number> = [
+  301, 302, 303, 307, 308,
+];
 
 /**
  * The main class from this module. Initialized with the hosts to connect to,
@@ -142,7 +144,7 @@ export class RqliteConnection {
       freshness: '5m',
       ...options,
       log: logOptions,
-      nodeSelector: options?.nodeSelector ?? RqliteRandomNodeSelector,
+      nodeSelector: options?.nodeSelector ?? RqliteDefaultNodeSelector,
     };
     this.selector = this.options.nodeSelector(this.hosts, this.options);
   }
@@ -214,7 +216,8 @@ export class RqliteConnection {
       const selector = this.selector.createNodeSelectorForQuery(
         strength,
         freshness,
-        topLevelAbortSignal
+        topLevelAbortSignal,
+        path
       );
       let followingHost: string | undefined = undefined;
       while (true) {
@@ -384,6 +387,14 @@ export class RqliteConnection {
 
           if (decision.follow) {
             followingHost = decision.overrideFollowTarget ?? redirectLocation;
+            const pathSepIdx = followingHost.indexOf(
+              '/',
+              followingHost.startsWith('http') ? 'https://'.length : 0
+            );
+            if (pathSepIdx >= 0) {
+              followingHost = followingHost.substring(0, pathSepIdx);
+            }
+
             if (this.options.log.followRedirect.enabled) {
               const msg = this.options.log.meta.format(
                 this.options.log.followRedirect.level,
@@ -456,11 +467,10 @@ export class RqliteConnection {
    *   verified it's OK.
    * @param signal The signal to abort the backup
    * @param consistency The consistency hint to the node selector. Note that this
-   *   is not handled by the underlying rqlite cluster, and the default node selector
-   *   will ignore it. Also note that backups on large databases that target the leader
-   *   will generally cause them to be demoted, so using 'weak' is meaningless. Almost
-   *   always, this should be 'none', and it will be unless explicitly set to 'weak'
-   *   regardless of the connection options.
+   *   is not handled by the underlying rqlite cluster, and thus requires a separate
+   *   request, which could race. Note that performance is significantly enhanced
+   *   when performing the backup on the leader node, and the default settings will
+   *   cause the leader to be discovered and used.
    * @param freshness The freshness hint to the node selector. Note that this is not
    *   handled by the underlying rqlite cluster, and the default node selector will
    *   ignore it.
@@ -472,7 +482,7 @@ export class RqliteConnection {
     consistency?: 'none' | 'weak',
     freshness?: string
   ): Promise<void> {
-    const readConsistencyHint = consistency ?? 'none';
+    const readConsistencyHint = consistency ?? 'weak';
     const freshnessHint = freshness ?? this.options.freshness;
     const path = '/db/backup' + (format === 'sql' ? '?fmt=sql' : '');
 

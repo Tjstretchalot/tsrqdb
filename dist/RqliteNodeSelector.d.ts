@@ -1,4 +1,4 @@
-import type { RqliteConcreteConnectionOptions } from './RqliteConnection';
+import { type RqliteConcreteConnectionOptions } from './RqliteConnection';
 import type { DeepReadonly } from './DeepReadonly';
 export type RqliteNodeFailureTimeout = {
     type: 'timeout';
@@ -46,7 +46,8 @@ export type RqliteQueryNodeSelector = {
     onSuccess: () => Promise<void>;
     /**
      * Callback for if the query to the node fails because we accessed the
-     * wrong node. Shoul
+     * wrong node. Should return a promise that indicates whether or not
+     * to follow the redirect.
      *
      * @param redirect The redirect information
      * @returns Resolve to indicate if we should continue to another node
@@ -83,10 +84,23 @@ export type RqliteConcreteNodeSelector = {
      * @param freshness The freshness, if the strength is `'none'`
      * @param signal The signal that will be set to abort the query. The node selector
      *   should reject with RqliteCanceledError if the signal is set, as soon as possible.
+     * @param path the endpoint that is being attempted; this can be used to change the
+     *   behavior of the node selector, e.g, for differentiating backups vs. queries
      */
-    createNodeSelectorForQuery: (strength: 'none' | 'weak' | 'strong', freshness: string, signal: AbortSignal) => RqliteQueryNodeSelector;
+    createNodeSelectorForQuery: (strength: 'none' | 'weak' | 'strong', freshness: string, signal: AbortSignal, path: string) => RqliteQueryNodeSelector;
 };
 export type RqliteNodeSelector = (hosts: ReadonlyArray<string>, args: DeepReadonly<RqliteConcreteConnectionOptions>) => RqliteConcreteNodeSelector;
+/**
+ * For weak or higher consistency, this attempts each host up to the maximum
+ * number of times with a weak no-op query in order to discover the leader,
+ * then directs the query initially to the leader.
+ *
+ * This is primarily not intended to be used by itself; it can be used as
+ * an implementation detail of other node selectors to e.g., handle backups.
+ * Backups on rqlite v8.15 are substantially faster when they are directed
+ * to the leader.
+ */
+export declare const RqliteExplicitLeaderDiscoveryNodeSelector: RqliteNodeSelector;
 /**
  * For each query, repeatedly select a node at random without replacement
  * until all nodes have been attempted, backoff, then repeat until the maximum
@@ -101,4 +115,15 @@ export type RqliteNodeSelector = (hosts: ReadonlyArray<string>, args: DeepReadon
  * @param args The connection options
  */
 export declare const RqliteRandomNodeSelector: RqliteNodeSelector;
+/**
+ * The current default node selector. This implementation is subject to change, but
+ * currently works as follows:
+ *
+ * - For queries, this acts like the random node selector
+ * - For backups, this acts like the explicit leader discovery node selector
+ *
+ * @param hosts The hosts that can be tried
+ * @param args The connection options
+ */
+export declare const RqliteDefaultNodeSelector: RqliteNodeSelector;
 //# sourceMappingURL=RqliteNodeSelector.d.ts.map

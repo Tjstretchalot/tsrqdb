@@ -52,12 +52,12 @@ export type RqliteConnectionOptions = {
      */
     log?: RqliteLogOptions;
     /**
-     * The node selector to use. Defaults to `RqliteRandomNodeSelector`, as if by
+     * The node selector to use. Defaults to `RqliteDefaultNodeSelector`, as if by
      * ```ts
-     * import { RqliteConnection, RqliteRandomNodeSelector } from 'rqdb';
+     * import { RqliteConnection, RqliteDefaultNodeSelector } from 'rqdb';
      *
      * const connection = new RqliteConnection(['127.0.0.1:4001'], {
-     *   nodeSelector: RqliteRandomNodeSelector,
+     *   nodeSelector: RqliteDefaultNodeSelector,
      * })
      * ```
      *
@@ -70,6 +70,7 @@ export type RqliteConnectionOptions = {
 export type RqliteConcreteConnectionOptions = Required<Omit<RqliteConnectionOptions, 'log'>> & {
     log: RqliteConcreteLogOptions;
 };
+export declare const REDIRECT_STATUS_CODES: ReadonlyArray<number>;
 /**
  * The main class from this module. Initialized with the hosts to connect to,
  * use cursor() to create another object (with more specific configuration,
@@ -139,11 +140,10 @@ export declare class RqliteConnection {
      *   verified it's OK.
      * @param signal The signal to abort the backup
      * @param consistency The consistency hint to the node selector. Note that this
-     *   is not handled by the underlying rqlite cluster, and the default node selector
-     *   will ignore it. Also note that backups on large databases that target the leader
-     *   will generally cause them to be demoted, so using 'weak' is meaningless. Almost
-     *   always, this should be 'none', and it will be unless explicitly set to 'weak'
-     *   regardless of the connection options.
+     *   is not handled by the underlying rqlite cluster, and thus requires a separate
+     *   request, which could race. Note that performance is significantly enhanced
+     *   when performing the backup on the leader node, and the default settings will
+     *   cause the leader to be discovered and used.
      * @param freshness The freshness hint to the node selector. Note that this is not
      *   handled by the underlying rqlite cluster, and the default node selector will
      *   ignore it.

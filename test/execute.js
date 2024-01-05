@@ -15,7 +15,11 @@ COMMIT;
 `;
 
 async function main() {
-  const conn = new RqliteConnection(['http://127.0.0.1:4001']);
+  const conn = new RqliteConnection([
+    'http://127.0.0.1:4001',
+    'http://127.0.0.1:4003',
+    'http://127.0.0.1:4005',
+  ]);
   const cursor = conn.cursor();
 
   await cursor.executeMany2([
@@ -90,6 +94,21 @@ CREATE TABLE fruits (
         out: console.log,
       }
     );
+
+    // verify node selection is working
+    for (let i = 0; i < 20; i++) {
+      const response = await cursor.execute('SELECT 1', undefined, {
+        readConsistency: i < 10 ? 'weak' : 'none',
+      });
+      if (
+        response.results === undefined ||
+        response.results.length !== 1 ||
+        response.results[0].length !== 1 ||
+        response.results[0][0] !== 1
+      ) {
+        throw new Error('Expected response to be [[1]]');
+      }
+    }
   } finally {
     await cursor.execute('DROP TABLE fruits');
   }

@@ -25,6 +25,8 @@ import {
 } from './RqliteLogOptions';
 import {
   RqliteConcreteNodeSelector,
+  RqliteDefaultNodeSelector,
+  RqliteExplicitLeaderDiscoveryNodeSelector,
   RqliteNodeFailureFetchError,
   RqliteNodeFailureNonOKResponse,
   RqliteNodeFailureRedirect,
@@ -96,6 +98,8 @@ export {
   RqliteCanceledError,
   RqliteConnection,
   RqliteCursor,
+  RqliteDefaultNodeSelector,
+  RqliteExplicitLeaderDiscoveryNodeSelector,
   RqliteHostsExhaustedError,
   RqliteRandomNodeSelector,
   RqliteResultItemAdapter,

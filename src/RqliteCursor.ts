@@ -101,8 +101,10 @@ type RqliteRawResponse = {
   results?: RawRqliteResultItem[];
 };
 
-const parseResponse = (response: Response): Promise<RqliteRawResponse> => {
-  return response.json();
+const parseResponse = async (
+  response: Response
+): Promise<[Response, RqliteRawResponse]> => {
+  return [response, await response.json()];
 };
 
 /**
@@ -239,7 +241,7 @@ export class RqliteCursor {
     const requestId = Math.random().toString(36).substring(2);
 
     let requestStartedAt: number;
-    let response: Promise<RqliteRawResponse>;
+    let response: Promise<[Response, RqliteRawResponse]>;
     if (isRead) {
       const readStart = this.connection.options.log.readStart;
       if (readStart.enabled) {
@@ -285,7 +287,8 @@ export class RqliteCursor {
         'POST',
         '/db/query?level=' +
           readConsistency +
-          (readConsistency === 'none' ? '&freshness=' + freshness : ''),
+          (readConsistency === 'none' ? '&freshness=' + freshness : '') +
+          (readConsistency !== 'none' ? '&redirect' : ''),
         JSON.stringify([[operation, ...params]]),
         { 'Content-Type': 'application/json; charset=UTF-8' },
         executeOptions?.signal,
@@ -329,7 +332,7 @@ export class RqliteCursor {
         'strong',
         freshness,
         'POST',
-        '/db/execute',
+        '/db/execute?redirect',
         JSON.stringify([[operation, ...params]]),
         { 'Content-Type': 'application/json; charset=UTF-8' },
         executeOptions?.signal,
@@ -337,7 +340,7 @@ export class RqliteCursor {
       );
     }
 
-    const rawResponse = await response;
+    const [rawResponseObj, rawResponse] = await response;
     const requestTime = performance.now() - requestStartedAt;
 
     const responseLog = isRead
@@ -357,7 +360,7 @@ export class RqliteCursor {
       const rawMessage = `    {${requestId}} in ${requestTimeSeconds.toLocaleString(
         undefined,
         { maximumFractionDigits: 3 }
-      )}s - ${abridgedPayload}`;
+      )}s via ${rawResponseObj.url} - ${abridgedPayload}`;
       const message = this.connection.options.log.meta.format(
         responseLog.level,
         rawMessage
@@ -477,7 +480,7 @@ export class RqliteCursor {
       throw new Error('operations and parameters must be the same length');
     }
 
-    const path = '/db/execute' + (transaction ? '?transaction' : '');
+    const path = '/db/execute?redirect' + (transaction ? '&transaction' : '');
     const requestId = Math.random().toString(36).substring(2);
 
     const combinedRequest = [
@@ -506,7 +509,7 @@ export class RqliteCursor {
     }
 
     const requestStartedAt = performance.now();
-    const rawResponse = await this.connection.fetchResponse(
+    const [rawResponseObj, rawResponse] = await this.connection.fetchResponse(
       'strong',
       this.connection.options.freshness,
       'POST',
@@ -533,7 +536,7 @@ export class RqliteCursor {
       const rawMessage = `    {${requestId}} in ${requestTimeSeconds.toLocaleString(
         undefined,
         { maximumFractionDigits: 3 }
-      )}s - ${abridgedPayload}`;
+      )}s via ${rawResponseObj.url} - ${abridgedPayload}`;
       const message = this.connection.options.log.meta.format(
         writeResponse.level,
         rawMessage

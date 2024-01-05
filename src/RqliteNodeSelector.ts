@@ -1,4 +1,7 @@
-import type { RqliteConcreteConnectionOptions } from './RqliteConnection';
+import {
+  REDIRECT_STATUS_CODES,
+  type RqliteConcreteConnectionOptions,
+} from './RqliteConnection';
 import { createRandomRangeFunction } from './createRandomRangeFunction';
 import { createRandomShuffleFunction } from './createRandomPermutationFunction';
 import type { DeepReadonly } from './DeepReadonly';
@@ -60,7 +63,8 @@ export type RqliteQueryNodeSelector = {
 
   /**
    * Callback for if the query to the node fails because we accessed the
-   * wrong node. Shoul
+   * wrong node. Should return a promise that indicates whether or not
+   * to follow the redirect.
    *
    * @param redirect The redirect information
    * @returns Resolve to indicate if we should continue to another node
@@ -99,11 +103,14 @@ export type RqliteConcreteNodeSelector = {
    * @param freshness The freshness, if the strength is `'none'`
    * @param signal The signal that will be set to abort the query. The node selector
    *   should reject with RqliteCanceledError if the signal is set, as soon as possible.
+   * @param path the endpoint that is being attempted; this can be used to change the
+   *   behavior of the node selector, e.g, for differentiating backups vs. queries
    */
   createNodeSelectorForQuery: (
     strength: 'none' | 'weak' | 'strong',
     freshness: string,
-    signal: AbortSignal
+    signal: AbortSignal,
+    path: string
   ) => RqliteQueryNodeSelector;
 };
 
@@ -206,6 +213,170 @@ const RqliteSingleNodeSelector: RqliteNodeSelector = (
           };
         },
         onFailure: () => backoff(passes, signal),
+      };
+    },
+  };
+};
+
+/**
+ * For weak or higher consistency, this attempts each host up to the maximum
+ * number of times with a weak no-op query in order to discover the leader,
+ * then directs the query initially to the leader.
+ *
+ * This is primarily not intended to be used by itself; it can be used as
+ * an implementation detail of other node selectors to e.g., handle backups.
+ * Backups on rqlite v8.15 are substantially faster when they are directed
+ * to the leader.
+ */
+export const RqliteExplicitLeaderDiscoveryNodeSelector: RqliteNodeSelector = (
+  hosts,
+  args
+): RqliteConcreteNodeSelector => {
+  if (hosts.length === 1) {
+    return RqliteSingleNodeSelector(hosts, args);
+  }
+
+  const initialNodeSelector = RqliteRandomNodeSelector(hosts, args);
+  return {
+    createNodeSelectorForQuery: (strength, freshness, signal, path) => {
+      if (strength === 'none') {
+        return initialNodeSelector.createNodeSelectorForQuery(
+          strength,
+          freshness,
+          signal,
+          path
+        );
+      }
+
+      const selector = initialNodeSelector.createNodeSelectorForQuery(
+        strength,
+        freshness,
+        signal,
+        path
+      );
+      let delegatingTo: RqliteQueryNodeSelector | null = null;
+
+      return {
+        selectNode: async (): Promise<string> => {
+          if (delegatingTo !== null) {
+            return delegatingTo.selectNode();
+          }
+
+          while (true) {
+            if (signal.aborted) {
+              throw new RqliteCanceledError();
+            }
+
+            const nextNode = await selector.selectNode();
+            try {
+              const response = await fetch(
+                `${nextNode}/db/query?level=weak&redirect`,
+                {
+                  headers: {
+                    'Content-Type': 'application/json; charset=UTF-8',
+                  },
+                  body: '[["SELECT 1"]]',
+                  signal,
+                  redirect: 'manual',
+                }
+              );
+              if (signal.aborted) {
+                await selector.onFailure({
+                  type: 'timeout',
+                });
+                throw new RqliteCanceledError();
+              }
+              if (REDIRECT_STATUS_CODES.includes(response.status)) {
+                const location = response.headers.get('Location');
+                if (location === null) {
+                  await selector.onFailure({
+                    type: 'nonOKResponse',
+                    subtype: 'status',
+                    response,
+                  });
+                  continue;
+                }
+
+                const decision = await selector.onRedirect({
+                  type: 'redirect',
+                  location,
+                  response,
+                });
+
+                const urlToTarget = decision.overrideFollowTarget ?? location;
+                if (!urlToTarget.startsWith('http')) {
+                  await selector.onFailure({
+                    type: 'nonOKResponse',
+                    subtype: 'body',
+                    response,
+                  });
+                  continue;
+                }
+
+                const pathSepIdx = urlToTarget.indexOf('/', 'https://'.length);
+                const urlWithoutPath =
+                  pathSepIdx < 0
+                    ? urlToTarget
+                    : urlToTarget.slice(0, pathSepIdx);
+                await selector.onSuccess();
+                return urlWithoutPath;
+              }
+
+              if (!response.ok) {
+                await selector.onFailure({
+                  type: 'nonOKResponse',
+                  subtype: 'status',
+                  response,
+                });
+                continue;
+              }
+            } catch (e) {
+              if (signal.aborted) {
+                await selector.onFailure({
+                  type: 'timeout',
+                });
+                throw new RqliteCanceledError();
+              }
+              await selector.onFailure({
+                type: 'fetchError',
+              });
+            }
+          }
+        },
+        onSuccess: async () => {
+          if (delegatingTo === null) {
+            return;
+          }
+          return delegatingTo.onSuccess();
+        },
+        onFailure: async (failure) => {
+          if (delegatingTo === null) {
+            delegatingTo = initialNodeSelector.createNodeSelectorForQuery(
+              strength,
+              freshness,
+              signal,
+              path
+            );
+            return;
+          }
+          return delegatingTo.onFailure(failure);
+        },
+        onRedirect: async (redirect) => {
+          if (delegatingTo === null) {
+            delegatingTo = initialNodeSelector.createNodeSelectorForQuery(
+              strength,
+              freshness,
+              signal,
+              path
+            );
+            return {
+              follow: false,
+              log: true,
+            };
+          }
+
+          return delegatingTo.onRedirect(redirect);
+        },
       };
     },
   };
@@ -394,7 +565,7 @@ export const RqliteRandomNodeSelector: RqliteNodeSelector = (
   const backoff = makePassBackoff();
 
   return {
-    createNodeSelectorForQuery: (_strength, _freshness, signal) => {
+    createNodeSelectorForQuery: (_strength, freshness, signal, path) => {
       return new _RqliteRandomNodeSelectorImpl(
         hosts,
         args,
@@ -403,6 +574,42 @@ export const RqliteRandomNodeSelector: RqliteNodeSelector = (
         firstPassRandomShuffle,
         repeatedPassRandomShuffle,
         backoff
+      );
+    },
+  };
+};
+
+/**
+ * The current default node selector. This implementation is subject to change, but
+ * currently works as follows:
+ *
+ * - For queries, this acts like the random node selector
+ * - For backups, this acts like the explicit leader discovery node selector
+ *
+ * @param hosts The hosts that can be tried
+ * @param args The connection options
+ */
+export const RqliteDefaultNodeSelector: RqliteNodeSelector = (
+  host,
+  args
+): RqliteConcreteNodeSelector => {
+  const querySelector = RqliteRandomNodeSelector(host, args);
+  // we will initialize the backup selector on-demand as it's rarely used
+
+  return {
+    createNodeSelectorForQuery(strength, freshness, signal, path) {
+      if (path.startsWith('/db/backup')) {
+        return RqliteExplicitLeaderDiscoveryNodeSelector(
+          host,
+          args
+        ).createNodeSelectorForQuery(strength, freshness, signal, path);
+      }
+
+      return querySelector.createNodeSelectorForQuery(
+        strength,
+        freshness,
+        signal,
+        path
       );
     },
   };
