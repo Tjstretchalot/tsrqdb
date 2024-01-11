@@ -182,6 +182,7 @@ export declare class RqliteCursor {
      *   over the cursor options.
      */
     execute(operation: string, parameters?: ReadonlyArray<RqliteParameter>, executeOptions?: RqliteExecuteOptions & RqliteConsistencyOptions): Promise<AdaptedRqliteResultItem>;
+    private _executeMany2;
     /**
      * Executes multiple operations within a single request and, by default, within
      * a transaction.
@@ -234,6 +235,7 @@ export declare class RqliteCursor {
      *   there may be fewer results than operations.
      */
     executeMany2(operations: ReadonlyArray<string>, parameters?: ReadonlyArray<ReadonlyArray<RqliteParameter>>, executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions): Promise<RqliteBulkResult>;
+    private _executeMany3;
     /**
      * Executes multiple operations within a single request and, by default, within
      * a transaction.
@@ -268,11 +270,116 @@ export declare class RqliteCursor {
      *   [
      *     "INSERT INTO users (uid, name, created_at) VALUES (?, ?, ?)",
      *     [userUid, name, createdAt]
+     *   ],
+     *   [
+     *     "INSERT INTO user_socials (uid, user_id, github_url, created_at) " +
+     *       "SELECT ?, users.id, ?, ? FROM users WHERE uid = ?",
+     *     [socialUid, githubUrl, createdAt, userUid]
      *   ]
      * ])
      * ```
      */
     executeMany3(operationsAndParameters: ReadonlyArray<[
+        string,
+        ReadonlyArray<RqliteParameter>
+    ]>, executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions): Promise<RqliteBulkResult>;
+    /**
+     * Equivalent to executeMany2(), except adds support for queries. Be
+     * aware that this will interpret control statements as queries, meaning if you
+     * have all readonly queries with control statements it will be executed using
+     * the read consistency. This may or may not be desirable. Use `strong` read
+     * consistency if the queries should be executed within the raft log regardless
+     * of the result of `sqlite3_stmt_readonly()`.
+     *
+     * Example:
+     *
+     * ```ts
+     * import { RqliteCursor } from 'rqdb';
+     *
+     * declare const cursor: RqliteCursor;
+     * declare const uid: string;
+     * declare const name: string;
+     * declare const createdAt: Date;
+     *
+     * const params = [uid, name, createdAt];
+     * const response = await cursor.executeUnified2([
+     *   'INSERT INTO users (uid, name, created_at) VALUES (?, ?, ?)',
+     *   'INSERT INTO users_log (uid, name, created_at) VALUES (?, ?, ?)',
+     *   'SELECT uid FROM users WHERE name=?',
+     * ], [...[0, 1].map((v) => params), [name]]);
+     * const [userResult, userLogResult, selectResult] = response.items;
+     * if (userResult.rowsAffected !== 1 || userLogResult.rowsAffected !== 1) {
+     *   throw new Error(
+     *     `Expected to insert 1 user (actual: ${userResult.rowsAffected}) ` +
+     *       `and 1 user log (actual: ${userLogResult.rowsAffected})`
+     *   );
+     * }
+     * if (selectResult.results?.length !== 1) {
+     *   throw new Error(`Expected 1 result from select, got ${selectResult}`);
+     * }
+     * const [selectUid] = selectResult.results[0];
+     * if (selectUid !== uid) {
+     *  throw new Error(`Expected select uid to be ${uid}, got ${selectUid}`);
+     * }
+     * ```
+     */
+    executeUnified2(operations: ReadonlyArray<string>, parameters?: ReadonlyArray<ReadonlyArray<RqliteParameter>>, executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions): Promise<RqliteBulkResult>;
+    /**
+     * Equivalent to executeMany3(), except adds support for queries. Be
+     * aware that this will interpret control statements as queries, meaning if you
+     * have all readonly queries with control statements it will be executed using
+     * the read consistency. This may or may not be desirable. Use `strong` read
+     * consistency if the queries should be executed within the raft log regardless
+     * of the result of `sqlite3_stmt_readonly()`.
+     *
+     * Example:
+     *
+     * ```ts
+     * import { RqliteCursor } from 'rqdb';
+     *
+     * declare const cursor: RqliteCursor;
+     * declare const userUid: string;
+     * declare const email: string;
+     * declare const name: string;
+     * declare const createdAt: Date;
+     * declare const socialUid: string;
+     * declare const githubUrl: string;
+     *
+     * const response = await cursor.executeUnified3([
+     *   [
+     *     `
+     * INSERT INTO users (uid, name, email, created_at)
+     * SELECT
+     *   ?, ?, ?, ?
+     * FROM users
+     * WHERE
+     *   NOT EXISTS (SELECT 1 FROM users WHERE email = ? COLLATE NOCASE)
+     *     `,
+     *     [userUid, name, email, createdAt, email]
+     *   ],
+     *   [
+     *     `
+     * INSERT INTO user_socials (uid, user_id, github_url, created_at)
+     * SELECT
+     *   ?, users.id, ?, ?
+     * FROM users
+     * WHERE uid = ?
+     *     `,
+     *     [socialUid, githubUrl, createdAt, userUid]
+     *   ],
+     *   [
+     *     "SELECT uid FROM users WHERE email=? COLLATE NOCASE",
+     *     [email]
+     *   ]
+     * ]);
+     *
+     * if (response[0].rowsAffected !== 1) {
+     *   const conflictUserUid = response[2].results[0][0] as string;
+     *   console.error('User with that email already exists with uid', conflictUserUid);
+     * }
+     * ```
+     */
+    executeUnified3(operationsAndParameters: ReadonlyArray<[
         string,
         ReadonlyArray<RqliteParameter>
     ]>, executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions): Promise<RqliteBulkResult>;

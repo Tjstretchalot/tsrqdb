@@ -87,6 +87,34 @@ CREATE TABLE fruits (
       fs.unlinkSync('test/test_execute.sql');
     }
 
+    const bulkResponse = await cursor.executeUnified3([
+      ['INSERT INTO fruits (name, color) VALUES (?, ?)', ['grape', 'purple']],
+      ['SELECT color FROM fruits WHERE name = ? COLLATE NOCASE', ['grape']],
+    ]);
+    if (bulkResponse.items.length !== 2) {
+      throw new Error(
+        `expected 2 items in bulk response, got ${bulkResponse.items.length}`
+      );
+    }
+    if (bulkResponse.items[0].rowsAffected !== 1) {
+      throw new Error(
+        `expected 1 fruit inserted, got ${bulkResponse.items[0].rowsAffected}`
+      );
+    }
+    if (bulkResponse.items[1].results === undefined) {
+      throw new Error('expected results to be defined');
+    }
+    if (bulkResponse.items[1].results.length !== 1) {
+      throw new Error(
+        `expected 1 fruit selected, got ${bulkResponse.items[1].results.length}`
+      );
+    }
+    if (bulkResponse.items[1].results[0][0] !== 'purple') {
+      throw new Error(
+        `expected fruit to be purple, got ${bulkResponse.items[1].results[0][0]}`
+      );
+    }
+
     await cursor.explain(
       'SELECT name, color FROM fruits WHERE name = ? COLLATE NOCASE',
       ['apple'],

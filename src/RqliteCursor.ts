@@ -416,58 +416,8 @@ export class RqliteCursor {
     return result;
   }
 
-  /**
-   * Executes multiple operations within a single request and, by default, within
-   * a transaction.
-   *
-   * Regardless of what type of operations are passed in, they will be executed
-   * as if they are mutating, i.e., they will be executed on all nodes, no
-   * result nodes will be returned, and the operations will be committed to the
-   * Raft log.
-   *
-   * This is essentially the same method as `executeMany3` but with a slightly
-   * different signature (operations first, then parameters).
-   *
-   * Generally this should only be used if:
-   * - you have no parameters
-   * - you have very consistent parameters across all operations
-   * - you already broke out the parameters for other reasons
-   *
-   * Otherwise, prefer `executeMany3`, which keeps the parameters near their
-   * respective operations.
-   *
-   * Example:
-   *
-   * ```tsx
-   * import { RqliteCursor } from 'rqdb';
-   *
-   * declare const cursor: RqliteCursor;
-   * declare const uid: string;
-   * declare const name: string;
-   * declare const createdAt: Date;
-   *
-   * const params = [uid, name, createdAt];
-   * const response = await cursor.executeMany2([
-   *   'INSERT INTO users (uid, name, created_at) VALUES (?, ?, ?)',
-   *   'INSERT INTO users_log (uid, name, created_at) VALUES (?, ?, ?)',
-   * ], [0, 1].map((v) => params));
-   * const [userResult, userLogResult] = response.items;
-   * if (userResult.rowsAffected !== 1 || userLogResult.rowsAffected !== 1) {
-   *   throw new Error(
-   *     `Expected to insert 1 user (actual: ${userResult.rowsAffected}) ` +
-   *       `and 1 user log (actual: ${userLogResult.rowsAffected})`
-   *   );
-   * }
-   * ```
-   *
-   * @param operations The operations to execute
-   * @param parameters For each operation, the parameters to use in the operation
-   * @param executeOptions The options for this execution, which take precedence
-   *   over the cursor options.
-   * @returns The result of each operation, in order. If a SQL error occurs, then
-   *   there may be fewer results than operations.
-   */
-  async executeMany2(
+  private async _executeMany2(
+    basePath: string,
     operations: ReadonlyArray<string>,
     parameters?: ReadonlyArray<ReadonlyArray<RqliteParameter>>,
     executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions
@@ -480,7 +430,7 @@ export class RqliteCursor {
       throw new Error('operations and parameters must be the same length');
     }
 
-    const path = '/db/execute?redirect' + (transaction ? '&transaction' : '');
+    const path = basePath + '?redirect' + (transaction ? '&transaction' : '');
     const requestId = Math.random().toString(36).substring(2);
 
     const combinedRequest = [
@@ -579,6 +529,85 @@ export class RqliteCursor {
    * result nodes will be returned, and the operations will be committed to the
    * Raft log.
    *
+   * This is essentially the same method as `executeMany3` but with a slightly
+   * different signature (operations first, then parameters).
+   *
+   * Generally this should only be used if:
+   * - you have no parameters
+   * - you have very consistent parameters across all operations
+   * - you already broke out the parameters for other reasons
+   *
+   * Otherwise, prefer `executeMany3`, which keeps the parameters near their
+   * respective operations.
+   *
+   * Example:
+   *
+   * ```tsx
+   * import { RqliteCursor } from 'rqdb';
+   *
+   * declare const cursor: RqliteCursor;
+   * declare const uid: string;
+   * declare const name: string;
+   * declare const createdAt: Date;
+   *
+   * const params = [uid, name, createdAt];
+   * const response = await cursor.executeMany2([
+   *   'INSERT INTO users (uid, name, created_at) VALUES (?, ?, ?)',
+   *   'INSERT INTO users_log (uid, name, created_at) VALUES (?, ?, ?)',
+   * ], [0, 1].map((v) => params));
+   * const [userResult, userLogResult] = response.items;
+   * if (userResult.rowsAffected !== 1 || userLogResult.rowsAffected !== 1) {
+   *   throw new Error(
+   *     `Expected to insert 1 user (actual: ${userResult.rowsAffected}) ` +
+   *       `and 1 user log (actual: ${userLogResult.rowsAffected})`
+   *   );
+   * }
+   * ```
+   *
+   * @param operations The operations to execute
+   * @param parameters For each operation, the parameters to use in the operation
+   * @param executeOptions The options for this execution, which take precedence
+   *   over the cursor options.
+   * @returns The result of each operation, in order. If a SQL error occurs, then
+   *   there may be fewer results than operations.
+   */
+  executeMany2(
+    operations: ReadonlyArray<string>,
+    parameters?: ReadonlyArray<ReadonlyArray<RqliteParameter>>,
+    executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions
+  ): Promise<RqliteBulkResult> {
+    return this._executeMany2(
+      '/db/execute',
+      operations,
+      parameters,
+      executeOptions
+    );
+  }
+
+  private _executeMany3(
+    basePath: string,
+    operationsAndParameters: ReadonlyArray<
+      [string, ReadonlyArray<RqliteParameter>]
+    >,
+    executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions
+  ): Promise<RqliteBulkResult> {
+    return this._executeMany2(
+      basePath,
+      operationsAndParameters.map(([operation]) => operation),
+      operationsAndParameters.map(([, parameters]) => parameters),
+      executeOptions
+    );
+  }
+
+  /**
+   * Executes multiple operations within a single request and, by default, within
+   * a transaction.
+   *
+   * Regardless of what type of operations are passed in, they will be executed
+   * as if they are mutating, i.e., they will be executed on all nodes, no
+   * result nodes will be returned, and the operations will be committed to the
+   * Raft log.
+   *
    * This is essentially the same method as `executeMany2` but with a slightly
    * different signature (parameters and operations are combined). This is very
    * similar to the actual rqlite API, except with the parameters in their own
@@ -604,19 +633,145 @@ export class RqliteCursor {
    *   [
    *     "INSERT INTO users (uid, name, created_at) VALUES (?, ?, ?)",
    *     [userUid, name, createdAt]
+   *   ],
+   *   [
+   *     "INSERT INTO user_socials (uid, user_id, github_url, created_at) " +
+   *       "SELECT ?, users.id, ?, ? FROM users WHERE uid = ?",
+   *     [socialUid, githubUrl, createdAt, userUid]
    *   ]
    * ])
    * ```
    */
-  async executeMany3(
+  executeMany3(
     operationsAndParameters: ReadonlyArray<
       [string, ReadonlyArray<RqliteParameter>]
     >,
     executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions
   ): Promise<RqliteBulkResult> {
-    return await this.executeMany2(
-      operationsAndParameters.map(([operation]) => operation),
-      operationsAndParameters.map(([, parameters]) => parameters),
+    return this._executeMany3(
+      '/db/execute',
+      operationsAndParameters,
+      executeOptions
+    );
+  }
+
+  /**
+   * Equivalent to executeMany2(), except adds support for queries. Be
+   * aware that this will interpret control statements as queries, meaning if you
+   * have all readonly queries with control statements it will be executed using
+   * the read consistency. This may or may not be desirable. Use `strong` read
+   * consistency if the queries should be executed within the raft log regardless
+   * of the result of `sqlite3_stmt_readonly()`.
+   *
+   * Example:
+   *
+   * ```ts
+   * import { RqliteCursor } from 'rqdb';
+   *
+   * declare const cursor: RqliteCursor;
+   * declare const uid: string;
+   * declare const name: string;
+   * declare const createdAt: Date;
+   *
+   * const params = [uid, name, createdAt];
+   * const response = await cursor.executeUnified2([
+   *   'INSERT INTO users (uid, name, created_at) VALUES (?, ?, ?)',
+   *   'INSERT INTO users_log (uid, name, created_at) VALUES (?, ?, ?)',
+   *   'SELECT uid FROM users WHERE name=?',
+   * ], [...[0, 1].map((v) => params), [name]]);
+   * const [userResult, userLogResult, selectResult] = response.items;
+   * if (userResult.rowsAffected !== 1 || userLogResult.rowsAffected !== 1) {
+   *   throw new Error(
+   *     `Expected to insert 1 user (actual: ${userResult.rowsAffected}) ` +
+   *       `and 1 user log (actual: ${userLogResult.rowsAffected})`
+   *   );
+   * }
+   * if (selectResult.results?.length !== 1) {
+   *   throw new Error(`Expected 1 result from select, got ${selectResult}`);
+   * }
+   * const [selectUid] = selectResult.results[0];
+   * if (selectUid !== uid) {
+   *  throw new Error(`Expected select uid to be ${uid}, got ${selectUid}`);
+   * }
+   * ```
+   */
+  executeUnified2(
+    operations: ReadonlyArray<string>,
+    parameters?: ReadonlyArray<ReadonlyArray<RqliteParameter>>,
+    executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions
+  ): Promise<RqliteBulkResult> {
+    return this._executeMany2(
+      '/db/request',
+      operations,
+      parameters,
+      executeOptions
+    );
+  }
+
+  /**
+   * Equivalent to executeMany3(), except adds support for queries. Be
+   * aware that this will interpret control statements as queries, meaning if you
+   * have all readonly queries with control statements it will be executed using
+   * the read consistency. This may or may not be desirable. Use `strong` read
+   * consistency if the queries should be executed within the raft log regardless
+   * of the result of `sqlite3_stmt_readonly()`.
+   *
+   * Example:
+   *
+   * ```ts
+   * import { RqliteCursor } from 'rqdb';
+   *
+   * declare const cursor: RqliteCursor;
+   * declare const userUid: string;
+   * declare const email: string;
+   * declare const name: string;
+   * declare const createdAt: Date;
+   * declare const socialUid: string;
+   * declare const githubUrl: string;
+   *
+   * const response = await cursor.executeUnified3([
+   *   [
+   *     `
+   * INSERT INTO users (uid, name, email, created_at)
+   * SELECT
+   *   ?, ?, ?, ?
+   * FROM users
+   * WHERE
+   *   NOT EXISTS (SELECT 1 FROM users WHERE email = ? COLLATE NOCASE)
+   *     `,
+   *     [userUid, name, email, createdAt, email]
+   *   ],
+   *   [
+   *     `
+   * INSERT INTO user_socials (uid, user_id, github_url, created_at)
+   * SELECT
+   *   ?, users.id, ?, ?
+   * FROM users
+   * WHERE uid = ?
+   *     `,
+   *     [socialUid, githubUrl, createdAt, userUid]
+   *   ],
+   *   [
+   *     "SELECT uid FROM users WHERE email=? COLLATE NOCASE",
+   *     [email]
+   *   ]
+   * ]);
+   *
+   * if (response[0].rowsAffected !== 1) {
+   *   const conflictUserUid = response[2].results[0][0] as string;
+   *   console.error('User with that email already exists with uid', conflictUserUid);
+   * }
+   * ```
+   */
+  executeUnified3(
+    operationsAndParameters: ReadonlyArray<
+      [string, ReadonlyArray<RqliteParameter>]
+    >,
+    executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions
+  ): Promise<RqliteBulkResult> {
+    return this._executeMany3(
+      '/db/request',
+      operationsAndParameters,
       executeOptions
     );
   }
