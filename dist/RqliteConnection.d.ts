@@ -1,4 +1,5 @@
 import type { DeepReadonly } from './DeepReadonly';
+import { QueryInfo } from './QueryInfo';
 import { RqliteCursor } from './RqliteCursor';
 import { RqliteConcreteLogOptions, RqliteLogOptions } from './RqliteLogOptions';
 import { type RqliteNodeSelector, type RqliteConcreteNodeSelector } from './RqliteNodeSelector';
@@ -126,8 +127,11 @@ export declare class RqliteConnection {
      *   only if response.ok. It is passed the same abort signal that is used for
      *   the fetch, so generally it only needs to be handled if there is some kind
      *   of cancelable action besides loading data from the response.
+     * @param queryInfo If not null, a function that returns information about the
+     *   query for slow query logging. If null, slow query logging is disabled for this
+     *   query.
      */
-    fetchResponse<T extends object>(strength: 'none' | 'weak' | 'strong', freshness: string, method: 'GET' | 'POST', path: string, body: BodyInit | undefined, headers: Record<string, string> | undefined, signal: AbortSignal | undefined, parseResponse: (response: Response, signal: AbortSignal) => Promise<T>, requestBytes?: boolean): Promise<T>;
+    fetchResponse<T extends object>(strength: 'none' | 'weak' | 'strong', freshness: string, method: 'GET' | 'POST', path: string, body: BodyInit | undefined, headers: Record<string, string> | undefined, signal: AbortSignal | undefined, parseResponse: (response: Response, signal: AbortSignal) => Promise<T>, queryInfo: (() => QueryInfo) | null): Promise<T>;
     /**
      * Backs up the database to the given stream. This is the general-purpose
      * implementation, it is often more convenient to use backupToFile to write

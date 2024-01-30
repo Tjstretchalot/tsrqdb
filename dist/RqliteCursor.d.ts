@@ -323,7 +323,7 @@ export declare class RqliteCursor {
      * }
      * ```
      */
-    executeUnified2(operations: ReadonlyArray<string>, parameters?: ReadonlyArray<ReadonlyArray<RqliteParameter>>, executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions): Promise<RqliteBulkResult>;
+    executeUnified2(operations: ReadonlyArray<string>, parameters?: ReadonlyArray<ReadonlyArray<RqliteParameter>>, executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions & RqliteConsistencyOptions): Promise<RqliteBulkResult>;
     /**
      * Equivalent to executeMany3(), except adds support for queries. Be
      * aware that this will interpret control statements as queries, meaning if you
@@ -382,7 +382,7 @@ export declare class RqliteCursor {
     executeUnified3(operationsAndParameters: ReadonlyArray<[
         string,
         ReadonlyArray<RqliteParameter>
-    ]>, executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions): Promise<RqliteBulkResult>;
+    ]>, executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions & RqliteConsistencyOptions): Promise<RqliteBulkResult>;
     /**
      * Accepts any query; if it is not prefixed with `EXPLAIN` then it will be
      * prefixed with `EXPLAIN QUERY PLAN`. The result will then be parsed into

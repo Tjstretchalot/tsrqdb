@@ -1,3 +1,4 @@
+import { QueryInfo } from './QueryInfo';
 import { RqliteConnection } from './RqliteConnection';
 import { RqliteReadConsistency } from './RqliteReadConsistency';
 import {
@@ -292,7 +293,14 @@ export class RqliteCursor {
         JSON.stringify([[operation, ...params]]),
         { 'Content-Type': 'application/json; charset=UTF-8' },
         executeOptions?.signal,
-        parseResponse
+        parseResponse,
+        () => ({
+          operations: [operation],
+          params: [params],
+          requestType: 'execute-read',
+          consistency: readConsistency,
+          freshness,
+        })
       );
     } else {
       const writeStart = this.connection.options.log.writeStart;
@@ -336,7 +344,14 @@ export class RqliteCursor {
         JSON.stringify([[operation, ...params]]),
         { 'Content-Type': 'application/json; charset=UTF-8' },
         executeOptions?.signal,
-        parseResponse
+        parseResponse,
+        () => ({
+          operations: [operation],
+          params: [params],
+          requestType: 'execute-write',
+          consistency: 'strong',
+          freshness,
+        })
       );
     }
 
@@ -419,18 +434,46 @@ export class RqliteCursor {
   private async _executeMany2(
     basePath: string,
     operations: ReadonlyArray<string>,
-    parameters?: ReadonlyArray<ReadonlyArray<RqliteParameter>>,
-    executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions
+    parameters: ReadonlyArray<ReadonlyArray<RqliteParameter>> | undefined,
+    executeOptions:
+      | undefined
+      | (RqliteExecuteOptions &
+          RqliteTransactionOptions &
+          RqliteConsistencyOptions),
+    isPossibleRead: boolean,
+    info: (
+      operations: ReadonlyArray<string>,
+      params: ReadonlyArray<ReadonlyArray<RqliteParameter>>
+    ) => QueryInfo
   ): Promise<RqliteBulkResult> {
     const raiseOnError = executeOptions?.raiseOnError ?? true;
     const params = parameters ?? operations.map(() => []);
     const transaction = executeOptions?.transaction ?? true;
+    const readConsistency =
+      executeOptions?.readConsistency ??
+      this.options?.readConsistency ??
+      this.connection.options.readConsistency;
+    const freshness =
+      executeOptions?.freshness ??
+      this.options?.freshness ??
+      this.connection.options.freshness;
 
     if (operations.length !== params.length) {
       throw new Error('operations and parameters must be the same length');
     }
 
-    const path = basePath + '?redirect' + (transaction ? '&transaction' : '');
+    const qargs: string[] = ['redirect'];
+    if (transaction) {
+      qargs.push('transaction');
+    }
+    if (isPossibleRead) {
+      qargs.push('level=' + readConsistency);
+      if (readConsistency === 'none') {
+        qargs.push('freshness=' + freshness);
+      }
+    }
+
+    const path = basePath + '?' + qargs.join('&');
     const requestId = Math.random().toString(36).substring(2);
 
     const combinedRequest = [
@@ -467,7 +510,8 @@ export class RqliteCursor {
       JSON.stringify(combinedRequest),
       { 'Content-Type': 'application/json; charset=UTF-8' },
       executeOptions?.signal,
-      parseResponse
+      parseResponse,
+      () => info(operations, params)
     );
     const requestTime = performance.now() - requestStartedAt;
 
@@ -580,7 +624,15 @@ export class RqliteCursor {
       '/db/execute',
       operations,
       parameters,
-      executeOptions
+      executeOptions,
+      false,
+      (operations, params) => ({
+        operations,
+        params,
+        requestType: 'executemany',
+        consistency: 'strong',
+        freshness: '',
+      })
     );
   }
 
@@ -589,13 +641,24 @@ export class RqliteCursor {
     operationsAndParameters: ReadonlyArray<
       [string, ReadonlyArray<RqliteParameter>]
     >,
-    executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions
+    executeOptions:
+      | undefined
+      | (RqliteExecuteOptions &
+          RqliteTransactionOptions &
+          RqliteConsistencyOptions),
+    isPossibleRead: boolean,
+    info: (
+      operations: ReadonlyArray<string>,
+      params: ReadonlyArray<ReadonlyArray<RqliteParameter>>
+    ) => QueryInfo
   ): Promise<RqliteBulkResult> {
     return this._executeMany2(
       basePath,
       operationsAndParameters.map(([operation]) => operation),
       operationsAndParameters.map(([, parameters]) => parameters),
-      executeOptions
+      executeOptions,
+      isPossibleRead,
+      info
     );
   }
 
@@ -651,7 +714,15 @@ export class RqliteCursor {
     return this._executeMany3(
       '/db/execute',
       operationsAndParameters,
-      executeOptions
+      executeOptions,
+      false,
+      (operations, params) => ({
+        operations,
+        params,
+        requestType: 'executemany',
+        consistency: 'strong',
+        freshness: '',
+      })
     );
   }
 
@@ -698,13 +769,39 @@ export class RqliteCursor {
   executeUnified2(
     operations: ReadonlyArray<string>,
     parameters?: ReadonlyArray<ReadonlyArray<RqliteParameter>>,
-    executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions
+    executeOptions?: RqliteExecuteOptions &
+      RqliteTransactionOptions &
+      RqliteConsistencyOptions
   ): Promise<RqliteBulkResult> {
     return this._executeMany2(
       '/db/request',
       operations,
       parameters,
-      executeOptions
+      executeOptions,
+      true,
+      (operations, params) => {
+        const isRead = operations.every((operation) => {
+          const command = getSqlCommand(operation);
+          return command === 'SELECT' || command === 'EXPLAIN';
+        });
+        return {
+          operations,
+          params,
+          requestType: isRead
+            ? 'executeunified-readonly'
+            : 'executeunified-write',
+          consistency: isRead
+            ? executeOptions?.readConsistency ??
+              this.options?.readConsistency ??
+              this.connection.options.readConsistency
+            : 'strong',
+          freshness: isRead
+            ? executeOptions?.freshness ??
+              this.options?.readConsistency ??
+              this.connection.options.freshness
+            : '',
+        };
+      }
     );
   }
 
@@ -767,12 +864,38 @@ export class RqliteCursor {
     operationsAndParameters: ReadonlyArray<
       [string, ReadonlyArray<RqliteParameter>]
     >,
-    executeOptions?: RqliteExecuteOptions & RqliteTransactionOptions
+    executeOptions?: RqliteExecuteOptions &
+      RqliteTransactionOptions &
+      RqliteConsistencyOptions
   ): Promise<RqliteBulkResult> {
     return this._executeMany3(
       '/db/request',
       operationsAndParameters,
-      executeOptions
+      executeOptions,
+      true,
+      (operations, params) => {
+        const isRead = operations.every((operation) => {
+          const command = getSqlCommand(operation);
+          return command === 'SELECT' || command === 'EXPLAIN';
+        });
+        return {
+          operations,
+          params,
+          requestType: isRead
+            ? 'executeunified-readonly'
+            : 'executeunified-write',
+          consistency: isRead
+            ? executeOptions?.readConsistency ??
+              this.options?.readConsistency ??
+              this.connection.options.readConsistency
+            : 'strong',
+          freshness: isRead
+            ? executeOptions?.freshness ??
+              this.options?.readConsistency ??
+              this.connection.options.freshness
+            : '',
+        };
+      }
     );
   }
 

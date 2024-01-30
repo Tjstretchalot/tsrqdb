@@ -1,3 +1,4 @@
+import { QueryInfo } from './QueryInfo';
 export type RqliteLogLevel = 'debug' | 'info' | 'warning' | 'error';
 type RqliteLogMessageConfigConfigured = {
     /**
@@ -45,6 +46,46 @@ export type RqliteLogMeta = {
      * @returns The formatted message to send to the log method, or undefined to suppress the message
      */
     format: (level: RqliteLogLevel, message: string, error?: any) => string | undefined;
+};
+export type SlowQueryExecutionDetails = {
+    /**
+     * The time between starting the request and receiving the headers for the
+     * response.
+     */
+    durationSeconds: number;
+    /**
+     * The host that handled the request
+     */
+    host: string;
+    /**
+     * The response size in bytes as reported by the content-length header
+     * in the response. If the header is not present, this will be zero.
+     */
+    responseSizeBytes: number;
+    /**
+     * Wall time when the request was started
+     */
+    startedAt: Date;
+    /**
+     * Wall time when the request was completed
+     */
+    endedAt: Date;
+};
+export type SlowQueryMethod = (info: QueryInfo, details: SlowQueryExecutionDetails) => void;
+export type RqliteSlowQueryLogMessageConfig = {
+    enabled: false;
+} | {
+    /** Indicates this is enabled */
+    enabled: true;
+    /**
+     * How many seconds, wall time, consitutes a "slow" query. May be zero
+     * to have the function called for every query.
+     */
+    thresholdSeconds: number;
+    /**
+     * The method to call to log a slow query.
+     */
+    method: SlowQueryMethod;
 };
 export type RqliteLogOptions = {
     /**
@@ -133,6 +174,14 @@ export type RqliteLogOptions = {
      */
     nonOkResponse?: RqliteLogMessageConfig;
     /**
+     * The message to log if a query takes a long amount of wall time between
+     * starting the request and receiving the headers for the response. This
+     * also specifies how long is "long". Disabled by default and does not
+     * include default message formatting, as this is typically used for
+     * funneling into a more detailed location.
+     */
+    slowQuery?: RqliteSlowQueryLogMessageConfig;
+    /**
      * The message to log when conn.backup() is called, prior to attempting a
      * connection.
      */
@@ -145,8 +194,9 @@ export type RqliteLogOptions = {
 };
 export type RqliteConcreteLogOptions = {
     meta: RqliteLogMeta;
+    slowQuery: RqliteSlowQueryLogMessageConfig;
 } & {
-    [k in keyof Omit<RqliteLogOptions, 'meta'>]-?: RqliteConcreteLogMessageConfig;
+    [k in keyof Omit<RqliteLogOptions, 'meta' | 'slowQuery'>]-?: RqliteConcreteLogMessageConfig;
 };
 type SQLCommand = 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE' | 'EXPLAIN';
 export declare const defaultColors: Record<RqliteLogLevel | 'timestamp' | 'errorDetails' | SQLCommand | 'BULK', (v: string) => string>;

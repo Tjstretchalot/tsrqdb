@@ -15,11 +15,20 @@ COMMIT;
 `;
 
 async function main() {
-  const conn = new RqliteConnection([
-    'http://127.0.0.1:4001',
-    'http://127.0.0.1:4003',
-    'http://127.0.0.1:4005',
-  ]);
+  const conn = new RqliteConnection(
+    ['http://127.0.0.1:4001', 'http://127.0.0.1:4003', 'http://127.0.0.1:4005'],
+    {
+      log: {
+        slowQuery: {
+          enabled: true,
+          thresholdSeconds: 0,
+          method: (query, details) => {
+            console.log('slowQuery called: ', query, details);
+          },
+        },
+      },
+    }
+  );
   const cursor = conn.cursor();
 
   await cursor.executeMany2([
@@ -122,6 +131,11 @@ CREATE TABLE fruits (
         out: console.log,
       }
     );
+
+    // verify consistency is working
+    await cursor.executeUnified2(['SELECT 1', 'SELECT 2'], undefined, {
+      readConsistency: 'none',
+    });
 
     // verify node selection is working
     for (let i = 0; i < 20; i++) {

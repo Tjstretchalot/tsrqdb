@@ -1,4 +1,5 @@
 import type { DeepReadonly } from './DeepReadonly';
+import { QueryInfo } from './QueryInfo';
 import { RqliteCursor } from './RqliteCursor';
 import {
   RqliteConcreteLogOptions,
@@ -178,6 +179,9 @@ export class RqliteConnection {
    *   only if response.ok. It is passed the same abort signal that is used for
    *   the fetch, so generally it only needs to be handled if there is some kind
    *   of cancelable action besides loading data from the response.
+   * @param queryInfo If not null, a function that returns information about the
+   *   query for slow query logging. If null, slow query logging is disabled for this
+   *   query.
    */
   async fetchResponse<T extends object>(
     strength: 'none' | 'weak' | 'strong',
@@ -188,7 +192,7 @@ export class RqliteConnection {
     headers: Record<string, string> | undefined,
     signal: AbortSignal | undefined,
     parseResponse: (response: Response, signal: AbortSignal) => Promise<T>,
-    requestBytes?: boolean
+    queryInfo: (() => QueryInfo) | null
   ): Promise<T> {
     if (signal?.aborted) {
       throw new RqliteCanceledError();
@@ -277,6 +281,8 @@ export class RqliteConnection {
         let response: Response | undefined = undefined;
         let responseBody: T | undefined = undefined;
         let startedReadingResponse = false;
+        const requestStartedAtWallMs = Date.now();
+        const requestStartedAtPerf = performance.now();
         try {
           response = await fetch(`${nextNode}${path}`, {
             method,
@@ -445,6 +451,32 @@ export class RqliteConnection {
           );
         }
 
+        const requestTimeMs = performance.now() - requestStartedAtPerf;
+        const requestEndedAtWallMs = Date.now();
+
+        if (
+          queryInfo !== null &&
+          this.options.log.slowQuery.enabled &&
+          requestTimeMs >= this.options.log.slowQuery.thresholdSeconds * 1000
+        ) {
+          const info = queryInfo();
+
+          let responseSizeBytes: number = 0;
+          try {
+            responseSizeBytes = parseInt(
+              response.headers.get('content-length') ?? '0'
+            );
+          } catch (e) {}
+
+          this.options.log.slowQuery.method(info, {
+            durationSeconds: requestTimeMs / 1000,
+            host: nextNode,
+            responseSizeBytes,
+            startedAt: new Date(requestStartedAtWallMs),
+            endedAt: new Date(requestEndedAtWallMs),
+          });
+        }
+
         return responseBody;
       }
     } finally {
@@ -513,7 +545,8 @@ export class RqliteConnection {
         }
         await consumer(response, signal);
         return {};
-      }
+      },
+      null
     );
     const requestEndedAt = performance.now();
     const backupEnd = this.options.log.backupEnd;
